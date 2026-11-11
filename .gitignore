@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+build/
+coverage/
+dist/
+.env
+.env.local
+.env.*.local
+tests/.mongo-uri
+*.log
+.DS_Store
+tsconfig.tsbuildinfo
