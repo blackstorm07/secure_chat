@@ -51,36 +51,24 @@ export async function issueSession(userId: string, authMethod: AuthMethod, userA
 
 export async function authenticateToken(token: string): Promise<AuthenticatedSession> {
   await connectMongo();
-  const session = await findSessionByTokenHash(sha256(token));
-  if (!session) throw new AppError(401, "UNAUTHORIZED", "Authentication required");
+  return presentSession(await findSessionByTokenHash(sha256(token)));
+}
 
-  const now = new Date();
-  if (session.expiresAt <= now || session.absoluteExpiresAt <= now) {
-    session.revokedAt = now;
-    await session.save();
+export async function authenticateSessionId(sessionId: string, userId: string): Promise<AuthenticatedSession> {
+  await connectMongo();
+  let session: Awaited<ReturnType<typeof findSessionById>> = null;
+  try {
+    session = await findSessionById(sessionId);
+  } catch (error) {
+    if (error instanceof AppError && error.status === 400) {
+      throw new AppError(401, "UNAUTHORIZED", "Authentication required");
+    }
+    throw error;
+  }
+  if (!session || session.userId.toString() !== userId) {
     throw new AppError(401, "UNAUTHORIZED", "Authentication required");
   }
-
-  const user = await UserModel.findById(session.userId);
-  if (!user || user.accountStatus !== "active") {
-    session.revokedAt = now;
-    await session.save();
-    throw new AppError(401, "UNAUTHORIZED", "Authentication required");
-  }
-
-  if (now.getTime() - session.lastUsedAt.getTime() >= SESSION_TOUCH_INTERVAL_MS) {
-    session.lastUsedAt = now;
-    const idleExpiry = new Date(now.getTime() + SESSION_IDLE_MS);
-    session.expiresAt = idleExpiry < session.absoluteExpiresAt ? idleExpiry : session.absoluteExpiresAt;
-    await session.save();
-  }
-
-  return {
-    user: { ...toPublicUser(user), chatPinSet: Boolean(await storedChatPinHash(user._id.toString())) },
-    userId: user._id.toString(),
-    sessionId: session._id.toString(),
-    csrfToken: session.csrfToken,
-  };
+  return presentSession(session);
 }
 
 export async function rotateSession(sessionId: string, userId: string, authMethod: AuthMethod, userAgent: string) {
@@ -116,6 +104,38 @@ async function pruneSessions(userId: string): Promise<void> {
     active.slice(0, overflow).map((session) => session._id.toString()),
     new Date(),
   );
+}
+
+async function presentSession(session: Awaited<ReturnType<typeof findSessionById>>): Promise<AuthenticatedSession> {
+  if (!session || session.revokedAt) throw new AppError(401, "UNAUTHORIZED", "Authentication required");
+
+  const now = new Date();
+  if (session.expiresAt <= now || session.absoluteExpiresAt <= now) {
+    session.revokedAt = now;
+    await session.save();
+    throw new AppError(401, "UNAUTHORIZED", "Authentication required");
+  }
+
+  const user = await UserModel.findById(session.userId);
+  if (!user || user.accountStatus !== "active") {
+    session.revokedAt = now;
+    await session.save();
+    throw new AppError(401, "UNAUTHORIZED", "Authentication required");
+  }
+
+  if (now.getTime() - session.lastUsedAt.getTime() >= SESSION_TOUCH_INTERVAL_MS) {
+    session.lastUsedAt = now;
+    const idleExpiry = new Date(now.getTime() + SESSION_IDLE_MS);
+    session.expiresAt = idleExpiry < session.absoluteExpiresAt ? idleExpiry : session.absoluteExpiresAt;
+    await session.save();
+  }
+
+  return {
+    user: { ...toPublicUser(user), chatPinSet: Boolean(await storedChatPinHash(user._id.toString())) },
+    userId: user._id.toString(),
+    sessionId: session._id.toString(),
+    csrfToken: session.csrfToken,
+  };
 }
 
 async function findSessionByTokenHashOrId(sessionId: string) {

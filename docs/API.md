@@ -35,6 +35,7 @@ The server stores opaque ciphertext and public keys. It does not decrypt message
 | POST | `/api/v1/auth/logout` | Session + CSRF | Revokes the session and clears the cookie. |
 | GET | `/api/v1/auth/me` | Session | Returns the public user and the CSRF token. |
 | POST | `/api/v1/auth/refresh` | Session + CSRF | Rotates the cookie. Absolute expiry does not move. |
+| POST | `/api/v1/auth/realtime` | Session + CSRF | Returns a 60-second ticket for the caller's active device. Body is `{ deviceId }`. |
 
 Register body: `username` (`^[a-z0-9_]{3,32}$`), `email`, `password` (12–128 characters with lower, upper, and a digit).
 
@@ -164,7 +165,7 @@ The client encrypts the bytes before the multipart POST. Requests that include a
 
 ## Socket.IO
 
-Connect to the realtime process with WebSocket only. Send the session cookie on the handshake and `auth.deviceId` of an active device owned by that session. The server derives the user from the session.
+Connect to the realtime process with WebSocket only. Send `auth.deviceId` of an active device owned by the session. On the same host, the session cookie is enough. When the page and the realtime host differ, send `auth.ticket` from `POST /api/v1/auth/realtime`. The ticket is signed with `SESSION_SECRET`, lasts 60 seconds, and is checked against the live session, so logout still disconnects the next handshake. The server derives the user from that session.
 
 | Event | Direction | Payload |
 | --- | --- | --- |

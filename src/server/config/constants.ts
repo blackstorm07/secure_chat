@@ -1,6 +1,7 @@
 export const SESSION_IDLE_MS = 12 * 60 * 60 * 1000;
 export const SESSION_ABSOLUTE_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_TOUCH_INTERVAL_MS = 60 * 1000;
+export const REALTIME_TICKET_TTL_MS = 60 * 1000;
 export const MAX_SESSIONS_PER_USER = 10;
 
 export const MAX_REQUEST_BYTES = 2 * 1024 * 1024;

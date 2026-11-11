@@ -27,7 +27,7 @@ export function useSocket() {
       .then((device) => {
         if (cancelled) return;
         setDevice(device, null);
-        realtime.connect(device.deviceId);
+        realtime.connect(device.deviceId, csrfToken);
       })
       .catch((error: unknown) => {
         if (cancelled) return;

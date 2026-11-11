@@ -40,7 +40,7 @@ Every conversation and message read checks active membership. Message queries ar
 
 Socket identity is the session user plus an owned active device. `message:send` ignores any user id in the payload and rejects a sender device id other than the connected device. Non-members receive `NOT_FOUND`. Delivery is emitted only to `device:{recipientDeviceId}`.
 
-The realtime service allowlists `Origin` and, in production, requires HTTPS. Browser clients send `Origin`. A non-browser client can omit it; that client still needs the session cookie.
+The realtime service allowlists `Origin` and, in production, requires HTTPS. Browser clients send `Origin`. A non-browser client can omit it. The handshake still needs the session cookie or a short-lived realtime ticket. The ticket is an HMAC of the user, session, and device, signed with `SESSION_SECRET`. It is not a second password: the server loads that session and rejects revoked or expired ones. A ticket for one device cannot be presented as another.
 
 ## Media
 

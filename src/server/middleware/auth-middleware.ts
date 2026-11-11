@@ -1,7 +1,8 @@
 import { timingSafeEqualString } from "@/lib/auth";
 import { AppError } from "@/lib/errors";
+import { verifyRealtimeTicket } from "@/lib/realtime-ticket";
 import { sessionCookieName } from "@/lib/security";
-import { authenticateToken, type AuthenticatedSession } from "@/lib/session";
+import { authenticateSessionId, authenticateToken, type AuthenticatedSession } from "@/lib/session";
 import { readCookie } from "@/server/utils/cookies";
 
 export type AuthContext = AuthenticatedSession;
@@ -29,4 +30,18 @@ export async function authenticateSocketCookie(cookieHeader: string | undefined)
   const token = readCookie(new Request("http://localhost", { headers: cookieHeader ? { cookie: cookieHeader } : {} }), sessionCookieName());
   if (!token) throw new AppError(401, "UNAUTHORIZED", "Authentication required");
   return authenticateToken(token);
+}
+
+export async function authenticateSocket(
+  cookieHeader: string | undefined,
+  handshake: { deviceId: string; ticket: unknown },
+): Promise<AuthContext> {
+  if (typeof handshake.ticket === "string" && handshake.ticket.length > 0) {
+    const claims = verifyRealtimeTicket(handshake.ticket);
+    if (!claims || claims.deviceId !== handshake.deviceId) {
+      throw new AppError(401, "UNAUTHORIZED", "Authentication required");
+    }
+    return authenticateSessionId(claims.sessionId, claims.userId);
+  }
+  return authenticateSocketCookie(cookieHeader);
 }

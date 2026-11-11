@@ -4,6 +4,7 @@ import { POST as login } from "@/app/api/v1/auth/login/route";
 import { POST as logout } from "@/app/api/v1/auth/logout/route";
 import { GET as authMe } from "@/app/api/v1/auth/me/route";
 import { POST as refresh } from "@/app/api/v1/auth/refresh/route";
+import { POST as realtimeTicket } from "@/app/api/v1/auth/realtime/route";
 import { GET as showProfile, PATCH as patchProfile } from "@/app/api/v1/users/me/route";
 import { POST as deactivate } from "@/app/api/v1/users/me/deactivate/route";
 import { GET as listDevices, POST as createDevice } from "@/app/api/v1/devices/route";
@@ -30,6 +31,7 @@ const routes: Array<{ method: string; pattern: RegExp; handler: Handler }> = [
   { method: "POST", pattern: /^\/api\/v1\/auth\/logout$/, handler: logout },
   { method: "GET", pattern: /^\/api\/v1\/auth\/me$/, handler: authMe },
   { method: "POST", pattern: /^\/api\/v1\/auth\/refresh$/, handler: refresh },
+  { method: "POST", pattern: /^\/api\/v1\/auth\/realtime$/, handler: realtimeTicket },
   { method: "GET", pattern: /^\/api\/v1\/users\/me$/, handler: showProfile },
   { method: "PATCH", pattern: /^\/api\/v1\/users\/me$/, handler: patchProfile },
   { method: "POST", pattern: /^\/api\/v1\/users\/me\/deactivate$/, handler: deactivate },

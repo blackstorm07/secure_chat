@@ -18,7 +18,7 @@ import {
 } from "@/server/config/constants";
 import { getEnv } from "@/server/config/env";
 import { isAllowedOrigin } from "@/lib/security";
-import { authenticateSocketCookie } from "@/server/middleware/auth-middleware";
+import { authenticateSocket } from "@/server/middleware/auth-middleware";
 import { requireOwnedDevice } from "@/server/middleware/authorization";
 import { createEncryptedMessages, markDelivered, markRead } from "@/server/services/message-service";
 import { publishRealtime, subscribeRealtime } from "@/server/sockets/bus";
@@ -71,8 +71,11 @@ export function attachRealtimeServer(server: HttpServer): Server {
 
   io.use(async (socket, next) => {
     try {
-      const auth = await authenticateSocketCookie(socket.handshake.headers.cookie);
       const deviceId = typeof socket.handshake.auth?.deviceId === "string" ? socket.handshake.auth.deviceId : "";
+      const auth = await authenticateSocket(socket.handshake.headers.cookie, {
+        deviceId,
+        ticket: socket.handshake.auth?.ticket,
+      });
       const device = await requireOwnedDevice(auth.userId, deviceId);
       const ip = clientAddress(socket.handshake.address);
       if ((userCounts.get(auth.userId) ?? 0) >= MAX_SOCKETS_PER_USER || (ipCounts.get(ip) ?? 0) >= MAX_SOCKETS_PER_IP) {

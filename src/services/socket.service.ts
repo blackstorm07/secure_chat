@@ -1,5 +1,6 @@
 import type { Socket } from "socket.io-client";
 import { io } from "socket.io-client";
+import { apiRequest } from "@/services/api";
 
 export type ConnectionStatus = "offline" | "connecting" | "online" | "reconnecting";
 
@@ -73,18 +74,28 @@ function realtimeUrl(): string | null {
   return null;
 }
 
+async function fetchRealtimeTicket(deviceId: string, csrfToken: string): Promise<string> {
+  const data = await apiRequest<{ ticket: string }>("/api/v1/auth/realtime", {
+    method: "POST",
+    csrfToken,
+    body: { deviceId },
+  });
+  return data.ticket;
+}
+
 class RealtimeClient {
   private socket: Socket | null = null;
   private listeners = new Set<Listener>();
   private deviceId: string | null = null;
+  private csrfToken: string | null = null;
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  connect(deviceId: string): void {
-    if (this.socket && this.deviceId === deviceId) return;
+  connect(deviceId: string, csrfToken: string): void {
+    if (this.socket && this.deviceId === deviceId && this.csrfToken === csrfToken) return;
     this.disconnect();
     const url = realtimeUrl();
     if (!url) {
@@ -93,6 +104,7 @@ class RealtimeClient {
       return;
     }
     this.deviceId = deviceId;
+    this.csrfToken = csrfToken;
     this.emit({ type: "connection", status: "connecting" });
     const socket = io(url, {
       transports: ["websocket"],
@@ -100,7 +112,11 @@ class RealtimeClient {
       reconnection: true,
       reconnectionAttempts: Infinity,
       timeout: 10000,
-      auth: { deviceId },
+      auth: (callback) => {
+        void fetchRealtimeTicket(deviceId, csrfToken)
+          .then((ticket) => callback({ deviceId, ticket }))
+          .catch(() => callback({ deviceId }));
+      },
     });
     this.socket = socket;
     socket.on("connect", () => this.emit({ type: "connection", status: "online" }));
@@ -157,6 +173,7 @@ class RealtimeClient {
     this.socket?.disconnect();
     this.socket = null;
     this.deviceId = null;
+    this.csrfToken = null;
   }
 
   sendTyping(conversationId: string, typing: boolean): void {

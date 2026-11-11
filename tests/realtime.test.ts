@@ -2,7 +2,10 @@ import { createServer } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { io, type Socket } from "socket.io-client";
+import { issueRealtimeTicket } from "@/lib/realtime-ticket";
+import { SessionModel } from "@/models/Session";
 import { attachRealtimeServer } from "@/server/sockets/server";
+import { objectId } from "@/server/utils/ids";
 import { authHeaders, publicKey, registerAccount } from "./support/account";
 import { resetDatabase } from "./support/db";
 import { createApiServer } from "./support/http";
@@ -29,15 +32,16 @@ afterAll(async () => {
 
 beforeEach(resetDatabase);
 
-function connect(cookie: string, deviceId: string, origin = "http://localhost:3000"): Socket {
-  const token = cookie.slice("session=".length);
+function connect(cookie: string, deviceId: string, origin = "http://localhost:3000", ticket?: string): Socket {
+  const headers: Record<string, string> = { origin };
+  if (cookie) headers.cookie = cookie;
   return io(`http://127.0.0.1:${port}`, {
     transports: ["websocket"],
     reconnection: false,
     forceNew: true,
     timeout: 5000,
-    extraHeaders: { cookie: `session=${token}`, origin },
-    auth: { deviceId },
+    extraHeaders: headers,
+    auth: ticket ? { deviceId, ticket } : { deviceId },
   });
 }
 
@@ -232,5 +236,44 @@ describe("realtime authorization", () => {
     sender.close();
     recipient.close();
     outsider.close();
+  });
+
+  it("accepts a short-lived ticket when the session cookie is absent", async () => {
+    const ada = await registerAccount(api, "ada", "ada@example.com");
+    const device = await api.post("/api/v1/devices").set(authHeaders(ada.cookie, ada.csrf)).send({
+      deviceName: "laptop",
+      identityPublicKey: publicKey(),
+      registrationId: 11,
+    });
+    const deviceId = device.body.data.device.id as string;
+    const issued = await api.post("/api/v1/auth/realtime").set(authHeaders(ada.cookie, ada.csrf)).send({ deviceId });
+    expect(issued.status).toBe(200);
+    const ticket = issued.body.data.ticket as string;
+    const socket = connect("", deviceId, "http://localhost:3000", ticket);
+    await connected(socket);
+    socket.close();
+
+    const tampered = connect("", deviceId, "http://localhost:3000", `${ticket}x`);
+    await expect(connected(tampered)).rejects.toThrow(/Authentication failed/i);
+    tampered.close();
+
+    const rebound = connect("", "a".repeat(24), "http://localhost:3000", ticket);
+    await expect(connected(rebound)).rejects.toThrow(/Authentication failed/i);
+    rebound.close();
+
+    const session = await SessionModel.findOne({ userId: objectId(ada.userId) });
+    if (!session) throw new Error("session missing");
+    const expired = issueRealtimeTicket(
+      { userId: ada.userId, sessionId: session._id.toString(), deviceId },
+      Date.now() - 120_000,
+    );
+    const stale = connect("", deviceId, "http://localhost:3000", expired);
+    await expect(connected(stale)).rejects.toThrow(/Authentication failed/i);
+    stale.close();
+
+    await api.post("/api/v1/auth/logout").set(authHeaders(ada.cookie, ada.csrf));
+    const revoked = connect("", deviceId, "http://localhost:3000", ticket);
+    await expect(connected(revoked)).rejects.toThrow(/Authentication failed/i);
+    revoked.close();
   });
 });

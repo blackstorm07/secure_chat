@@ -18,6 +18,10 @@ export const registerSchema = z.strictObject({
     .regex(/[0-9]/, "Password must include a digit"),
 });
 
+export const realtimeTicketSchema = z.strictObject({
+  deviceId: objectIdSchema,
+});
+
 export const loginSchema = z.strictObject({
   email: z.email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(1).max(128),
