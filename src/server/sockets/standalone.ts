@@ -25,7 +25,7 @@ const secureHeaders = helmet({
 const server = createServer((request, response) => {
   if (request.url?.startsWith("/socket.io")) return;
   if (request.method === "POST" && request.url === "/internal/events") {
-    void acceptLoopbackEvent(request, response);
+    void acceptFanoutEvent(request, response);
     return;
   }
   secureHeaders(request, response, () => {
@@ -50,20 +50,25 @@ function isLoopback(address: string | undefined): boolean {
   return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
 }
 
-async function acceptLoopbackEvent(
+async function acceptFanoutEvent(
   request: IncomingMessage,
   response: { writeHead: (status: number, headers?: Record<string, string>) => void; end: (body?: string) => void },
 ): Promise<void> {
-  if (!isLoopback(request.socket.remoteAddress)) {
-    response.writeHead(404, { "content-type": "application/json", "cache-control": "no-store" });
-    response.end(JSON.stringify({ success: false, message: "Not found", errorCode: "NOT_FOUND" }));
-    return;
-  }
   try {
     const body = await readBody(request, FANOUT_BODY_LIMIT);
     const token = request.headers["x-realtime-token"];
     const accepted = acceptRealtimeFanout(body, Array.isArray(token) ? token[0] : token);
-    response.writeHead(accepted ? 204 : 403, { "cache-control": "no-store" });
+    if (accepted) {
+      response.writeHead(204, { "cache-control": "no-store" });
+      response.end();
+      return;
+    }
+    if (!isLoopback(request.socket.remoteAddress)) {
+      response.writeHead(404, { "content-type": "application/json", "cache-control": "no-store" });
+      response.end(JSON.stringify({ success: false, message: "Not found", errorCode: "NOT_FOUND" }));
+      return;
+    }
+    response.writeHead(403, { "cache-control": "no-store" });
     response.end();
   } catch {
     response.writeHead(413, { "content-type": "application/json", "cache-control": "no-store" });

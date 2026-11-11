@@ -54,11 +54,28 @@ export async function publishRealtime(event: RealtimeEvent): Promise<void> {
   await fanoutToRealtimeProcess(parsed);
 }
 
+function fanoutUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_REALTIME_URL?.trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      if (url.protocol === "https:" || url.protocol === "http:") {
+        url.pathname = "/internal/events";
+        url.search = "";
+        url.hash = "";
+        return url.toString();
+      }
+    } catch {
+      // Fall back to the realtime process on this machine.
+    }
+  }
+  return `http://127.0.0.1:${getEnv().REALTIME_PORT}/internal/events`;
+}
+
 async function fanoutToRealtimeProcess(event: RealtimeEvent): Promise<void> {
-  const env = getEnv();
   const body = JSON.stringify(event);
   try {
-    const response = await fetch(`http://127.0.0.1:${env.REALTIME_PORT}/internal/events`, {
+    const response = await fetch(fanoutUrl(), {
       method: "POST",
       headers: {
         "content-type": "application/json",

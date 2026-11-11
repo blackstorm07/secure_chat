@@ -191,11 +191,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
   upsertMessage: (message) =>
     set((state) => {
       const thread = state.threads[message.conversationId] ?? emptyThread();
+      const previousPreview = state.previews[message.conversationId];
+      const previewIsCurrent = !previousPreview || previousPreview.at <= message.createdAt;
       return {
         threads: {
           ...state.threads,
           [message.conversationId]: { ...thread, items: mergeMessages(thread.items, [message]), status: "ready" },
         },
+        previews: previewIsCurrent
+          ? {
+              ...state.previews,
+              [message.conversationId]: {
+                label: message.plaintext || message.attachment ? previewLabel(message) : previousPreview?.label ?? "Encrypted message",
+                at: message.createdAt,
+              },
+            }
+          : state.previews,
       };
     }),
   removeMessages: (ids) =>

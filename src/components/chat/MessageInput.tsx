@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { AttachmentMenu } from "@/components/chat/AttachmentMenu";
 import { ImagePreview } from "@/components/chat/ImagePreview";
 import { IconButton } from "@/components/ui/IconButton";
-import { bytesToBase64 } from "@/lib/chat-text";
+import { CHAT_PIN_PROTOCOL, bytesToBase64, createClientMessageId } from "@/lib/chat-text";
 import { compressImageFile, shouldCompressImage } from "@/lib/compress-image";
 import { attachmentMime, validateAttachment } from "@/lib/validations";
 import { formatBytes, isObjectId } from "@/lib/utils";
@@ -15,8 +15,45 @@ import { deleteAttachment, downloadCiphertext, uploadCiphertext } from "@/servic
 import { useAuthStore } from "@/store/auth.store";
 import { useChatStore } from "@/store/chat.store";
 import { realtime } from "@/services/socket.service";
+import type { ConversationDto } from "@/types";
+import type { StoredMessage } from "@/types/message";
 
 const EMOJI = ["😀", "😁", "😂", "😊", "😍", "😎", "🤔", "🙌", "👍", "👏", "🙏", "🔥", "✨", "🎉", "❤️", "💙", "✅", "📎", "🔒", "👀", "😴", "🤝", "📌", "📝"];
+
+function recipientDevices(conversation: ConversationDto, deviceId: string) {
+  return conversation.members
+    .filter((member) => member.membershipStatus === "active")
+    .flatMap((member) => member.devices.map((device) => ({ userId: member.userId, deviceId: device.id })))
+    .filter((recipient) => recipient.deviceId !== deviceId);
+}
+
+function pendingMessage(input: {
+  id: string;
+  conversationId: string;
+  senderUserId: string;
+  senderDeviceId: string;
+  recipientDeviceId: string;
+  clientMessageId: string;
+  text: string;
+}): StoredMessage {
+  return {
+    id: input.id,
+    conversationId: input.conversationId,
+    senderUserId: input.senderUserId,
+    senderDeviceId: input.senderDeviceId,
+    recipientDeviceId: input.recipientDeviceId,
+    ciphertextLength: 0,
+    messageType: "message",
+    protocolVersion: CHAT_PIN_PROTOCOL,
+    clientMessageId: input.clientMessageId,
+    createdAt: new Date().toISOString(),
+    expiresAt: null,
+    deliveredAt: null,
+    readAt: null,
+    plaintext: input.text,
+    attachment: null,
+  };
+}
 
 interface LocalAttachment {
   attachmentId: string;
@@ -67,6 +104,14 @@ export function MessageInput({ conversationId, snap = null }: { conversationId: 
     element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
   }
 
+  function rememberConversation(next: ConversationDto) {
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.some((item) => item.id === next.id)
+        ? state.conversations.map((item) => (item.id === next.id ? next : item))
+        : [next, ...state.conversations],
+    }));
+  }
+
   async function sendMessage() {
     if (typingRef.current && canUpload) {
       typingRef.current = false;
@@ -79,49 +124,81 @@ export function MessageInput({ conversationId, snap = null }: { conversationId: 
       setHint("Sign in again before sending.");
       return;
     }
-    let current = conversation;
-    if (!current) {
+    if (!conversation) {
       setHint("This conversation is still loading.");
+      return;
+    }
+    const senderDeviceId = deviceId;
+    const senderUserId = userId;
+    const token = csrfToken;
+    let current = conversation;
+    let recipients = recipientDevices(current, senderDeviceId);
+    if (recipients.length === 0) {
+      try {
+        const fresh = await getConversation(conversationId);
+        current = fresh.conversation;
+        rememberConversation(fresh.conversation);
+        recipients = recipientDevices(current, senderDeviceId);
+      } catch {
+        // The open conversation is still the best list of devices.
+      }
+    }
+    if (recipients.length === 0) {
+      setHint("This conversation has no device that can receive a message");
+      return;
+    }
+    const clientMessageId = createClientMessageId();
+    const file = pendingFile
+      ? {
+          attachmentId: pendingFile.attachmentId,
+          name: pendingFile.name,
+          mimeType: pendingFile.mimeType,
+          size: pendingFile.size,
+          key: bytesToBase64(pendingFile.key),
+        }
+      : undefined;
+    if (!file) {
+      const pending = recipients.map((recipient) => pendingMessage({
+        id: `pending:${clientMessageId}:${recipient.deviceId}`,
+        conversationId,
+        senderUserId,
+        senderDeviceId,
+        recipientDeviceId: recipient.deviceId,
+        clientMessageId,
+        text: value,
+      }));
+      setText("");
+      setHint(null);
+      if (areaRef.current) areaRef.current.style.height = "auto";
+      for (const message of pending) useChatStore.getState().upsertMessage(message);
+      void sendTextMessage(token, { conversationId, senderDeviceId, recipients, text: value, clientMessageId })
+        .then((messages) => {
+          useChatStore.getState().removeMessages(pending.map((message) => message.id));
+          for (const message of messages) useChatStore.getState().upsertMessage(message);
+        })
+        .catch((error: unknown) => {
+          useChatStore.getState().removeMessages(pending.map((message) => message.id));
+          setHint(errorMessage(error));
+          setText((currentText) => (currentText.trim() ? currentText : value));
+        });
       return;
     }
     sendingRef.current = true;
     setSending(true);
     setHint(null);
     try {
-      try {
-        const fresh = await getConversation(conversationId);
-        current = fresh.conversation;
-        useChatStore.setState((state) => ({
-          conversations: state.conversations.some((item) => item.id === fresh.conversation.id)
-            ? state.conversations.map((item) => (item.id === fresh.conversation.id ? fresh.conversation : item))
-            : [fresh.conversation, ...state.conversations],
-        }));
-      } catch {
-        // Keep the conversation already on screen if the refresh fails.
-      }
-      const recipients = current.members
-        .filter((member) => member.membershipStatus === "active")
-        .flatMap((member) => (member.devices ?? []).map((device) => ({ userId: member.userId, deviceId: device.id })))
-        .filter((recipient) => recipient.deviceId !== deviceId);
-      const messages = await sendTextMessage(csrfToken, {
+      const messages = await sendTextMessage(token, {
         conversationId,
-        senderDeviceId: deviceId,
+        senderDeviceId,
         recipients,
         text: value,
-        file: pendingFile
-          ? {
-              attachmentId: pendingFile.attachmentId,
-              name: pendingFile.name,
-              mimeType: pendingFile.mimeType,
-              size: pendingFile.size,
-              key: bytesToBase64(pendingFile.key),
-            }
-          : undefined,
+        file,
+        clientMessageId,
       });
       for (const message of messages) useChatStore.getState().upsertMessage(message);
       setText("");
       if (areaRef.current) areaRef.current.style.height = "auto";
-      if (pendingFile) await clearAttachment(false);
+      await clearAttachment(false);
     } catch (error) {
       setHint(errorMessage(error));
     } finally {

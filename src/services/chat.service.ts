@@ -61,7 +61,14 @@ export function deleteMessage(csrfToken: string, messageId: string): Promise<Rec
 
 export async function sendTextMessage(
   csrfToken: string,
-  input: { conversationId: string; senderDeviceId: string; recipients: RecipientDevice[]; text: string; file?: ChatAttachment },
+  input: {
+    conversationId: string;
+    senderDeviceId: string;
+    recipients: RecipientDevice[];
+    text: string;
+    file?: ChatAttachment;
+    clientMessageId?: string;
+  },
 ): Promise<StoredMessage[]> {
   const envelopes = input.recipients
     .filter((recipient) => recipient.deviceId !== input.senderDeviceId)
@@ -73,7 +80,7 @@ export async function sendTextMessage(
     body: {
       conversationId: input.conversationId,
       senderDeviceId: input.senderDeviceId,
-      clientMessageId: createClientMessageId(),
+      clientMessageId: input.clientMessageId ?? createClientMessageId(),
       messageType: "message",
       protocolVersion: CHAT_PIN_PROTOCOL,
       envelopes,
