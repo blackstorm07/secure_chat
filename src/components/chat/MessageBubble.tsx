@@ -10,11 +10,8 @@ export interface BubbleModel {
   key: string;
   outgoing: boolean;
   createdAt: string;
-  messageType: string;
-  protocolVersion: string;
   status: "sent" | "delivered" | "read";
   ids: string[];
-  deviceCount: number;
   plaintext: string | null;
   attachment: ChatAttachment | null;
 }
@@ -37,11 +34,8 @@ export function toBubbles(items: StoredMessage[], selfId: string | null): Bubble
       key: `${first.senderDeviceId}:${first.clientMessageId}`,
       outgoing: first.senderUserId === selfId,
       createdAt: first.createdAt,
-      messageType: first.messageType,
-      protocolVersion: first.protocolVersion,
       status: read ? "read" : delivered ? "delivered" : "sent",
       ids: group.map((item) => item.id),
-      deviceCount: group.length,
       plaintext: group.find((item) => item.plaintext)?.plaintext ?? null,
       attachment: group.find((item) => item.attachment)?.attachment ?? null,
     });
@@ -56,7 +50,6 @@ export function MessageBubble({
   text,
   attachment,
   detail,
-  meta,
   receipt,
   onDelete,
 }: {
@@ -66,7 +59,6 @@ export function MessageBubble({
   text?: string;
   attachment?: ChatAttachment | null;
   detail?: string;
-  meta?: string;
   receipt?: "sent" | "delivered" | "read";
   onDelete?: () => void;
 }) {
@@ -76,7 +68,6 @@ export function MessageBubble({
         {attachment ? <MessageMedia file={attachment} outgoing={outgoing} /> : null}
         {text ? <p className={cn("text-sm leading-5 whitespace-pre-wrap break-words", attachment ? "mt-2" : "")}>{text}</p> : null}
         {detail ? <p className={cn("mt-1 text-xs leading-5", outgoing ? "text-white/75" : "text-[var(--muted)]")}>{detail}</p> : null}
-        {meta ? <p className={cn("mt-1 text-[10px] tracking-wide uppercase", outgoing ? "text-white/60" : "text-[var(--muted)]")}>{meta}</p> : null}
         <div className={cn("mt-1 flex items-center justify-end gap-1", outgoing ? "text-white/75" : "text-[var(--muted)]")}>
           <time className="text-[11px]" dateTime={createdAt}>
             {timeLabel}

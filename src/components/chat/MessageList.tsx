@@ -15,7 +15,6 @@ interface View {
   text?: string;
   attachment?: ChatAttachment | null;
   detail?: string;
-  meta?: string;
   receipt?: "sent" | "delivered" | "read";
   onDelete?: () => void;
 }
@@ -97,7 +96,6 @@ export function MessageList({
                 text={view.text}
                 attachment={view.attachment}
                 detail={view.detail}
-                meta={view.meta}
                 receipt={view.receipt}
                 onDelete={view.onDelete}
               />
@@ -122,7 +120,6 @@ function buildViews(items: StoredMessage[], selfId: string | null, onDelete: (id
       text: locked ? "Encrypted message" : bubble.plaintext || (bubble.attachment ? undefined : "Encrypted message"),
       attachment: locked ? null : bubble.attachment,
       detail: locked ? "Enter the chat PIN to read this message." : bubble.plaintext || bubble.attachment ? undefined : "This message was locked with the old device key and cannot be opened.",
-      meta: locked ? undefined : `${bubble.messageType} · ${bubble.protocolVersion}${bubble.deviceCount > 1 ? ` · ${bubble.deviceCount} devices` : ""}`,
       receipt: bubble.outgoing ? bubble.status : undefined,
       onDelete: () => onDelete(bubble.ids),
     });
